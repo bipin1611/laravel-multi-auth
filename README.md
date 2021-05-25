@@ -1,62 +1,131 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400"></a></p>
+# Multiple Authentication In Laravel (By using Custom Auth guard)
 
-<p align="center">
-<a href="https://travis-ci.org/laravel/framework"><img src="https://travis-ci.org/laravel/framework.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Please Follow Below Steps to implement in your Project.
 
-## About Laravel
+So, let's create for `Admin`
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+### Step: 1 - Make a Model and Migration called   `Admin`
+On Admin Model, add below code,
+```
+use Illuminate\Foundation\Auth\User as Authenticatable;
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+class Admin extends Authenticatable
+{
+    use HasFactory;
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+    protected $guard = 'admin';
 
-## Learning Laravel
+    protected $guarded =[];
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+}
+```
+here, my [Models/Admin](https://github.com/bipin1611/laravel-multi-auth/blob/master/app/Models/Admin.php)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 1500 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+and on your admin migration add the necessary fields and migrate the database.
 
-## Laravel Sponsors
+### Step: 2 - Create a `AdminController` for performing the action
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
+on `AdminController@login`
+```
+public function login(Request $request)
+{
+    $request->validate([
+        'email' => 'required',
+        'password' => 'required',
+    ]);
 
-### Premium Partners
+    if (Admin::where('email', $request->email)->exists()) {
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[OP.GG](https://op.gg)**
+        if(\Auth::guard('admin')->attempt($request->only('email','password'),$request->filled('remember'))){
+            //Authentication passed...
+            return redirect()
+                ->intended(route('admin.dashboard'))
+                ->with('status','You are Logged in as Admin!');
+        }
 
-## Contributing
+        //Authentication failed...
+        return $this->loginFailed();
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+    }
+    return back()->with('failed', 'Please Enter Valid Email ID or Password.');
+}
+```
+please refer this [AdminController](https://github.com/bipin1611/laravel-multi-auth/blob/master/app/Http/Controllers/Admin/AdminController.php).
 
-## Code of Conduct
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Step: 3 - Setup Custom `Auth::guard`
+Go to `config/auth.php`
 
-## Security Vulnerabilities
+on `guards` array, add your custom guard 
+```
+'admin' => [
+    'driver' => 'session',
+    'provider' => 'admins',
+],
+```
+then, on `providers` array, add your provider which you define on your custom guard
+ ```
+ 'admins' => [
+    'driver' => 'eloquent',
+    'model' => App\Models\Admin::class,
+],
+  ```
+ Also, you can mentioned resetting password on `passwords` array
+```
+ 'admins' => [
+    'provider' => 'admins',
+    'table' => 'password_resets',
+    'expire' => 60
+],
+```
+here, you can check my [Config/Auth.php](https://github.com/bipin1611/laravel-multi-auth/blob/master/config/auth.php)
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-## License
+### Step: 4 - You can handle unauthenticated user on `App/Exceptions`
+by defining `unauthenticated` method.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+on `App/Exceptions/Handler.php`
+```
+use Illuminate\Auth\AuthenticationException;
+
+
+protected function unauthenticated($request, AuthenticationException $exception)
+{
+    if ($request->expectsJson()) {
+        return response()->json(['error' => 'Unauthenticated.'], 401);
+    }
+
+    if ($request->is('/admin') || $request->is('admin/*')) {
+        if(\Auth::guard('admin')->check() == false){
+            return redirect()->route('admin.login');
+        }
+    }
+    return redirect()->guest( url('/'));
+}
+```
+Please check the same file on my Repo [App/Exceptions/Handler.php](https://github.com/bipin1611/laravel-multi-auth/blob/master/app/Exceptions/Handler.php)
+
+### Step: 5 - Define Routes and Apply `auth:admin` middleware
+here is my `routes` 
+
+```
+use App\Http\Controllers\Admin\AdminController;
+use App\Http\Controllers\Admin\DashboardController;
+
+Route::get('/admin/login', [AdminController::class, 'showLoginForm'])->name('admin.login');
+Route::post('/admin/login', [AdminController::class, 'login'])->name('admin.login.post');
+
+Route::group(['prefix' => 'admin','middleware' =>'auth:admin'], function () {
+
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
+
+    Route::post('/logout', [AdminController::class, 'logout'])->name('admin.logout.post');
+});
+```
+
+
+### Notes:-
+Please note that when you define the custom auth guard, On Logout method make sure that you should logged out from particular `auth::guard` only. Here is how you should do,
+```
+\Auth::guard('admin')->logout();
+```
